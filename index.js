@@ -20,7 +20,7 @@
 var kafka = require('kafka-node'),
     Adapter = require('socket.io-adapter'),
     debug = require('debug')('socket.io-kafka'),
-    async = require('async'),
+    Promise = require('bluebird'),
     uid2 = require('uid2');
 
 /**
@@ -33,9 +33,10 @@ var kafka = require('kafka-node'),
  */
 function adapter(uri, options) {
     var opts = options || {},
-        prefix = opts.key || 'socket.io',
+        prefix = opts.key || 'socket.io-kafka-group',
         uid = uid2(6),
-        client;
+        client,
+        clientId;
 
     // handle options only
     if ('object' === typeof uri) {
@@ -43,18 +44,31 @@ function adapter(uri, options) {
         uri = opts.uri || opts.host ? opts.host + ':' + opts.port : null;
         if (!uri) { throw new URIError('URI or host/port are required.'); }
     }
+    if (opts.clientId)
+        clientId = opts.clientId
+    else 
+        clientId = 'socket.io-kafka'
 
     // create producer and consumer if they weren't provided
     if (!opts.producer || !opts.consumer) {
-        debug('creating new kafa client');
-        client = new kafka.Client(uri, opts.clientId, { retries: 2 });
+        debug('creating new kafka client');
+        //client = new kafka.Client(uri, clientId, { retries: 4 });
+        client = new kafka.Client();
+        client.on('error',function(err,data){
+            console.error('error',err,data)
+        })
         if (!opts.producer) {
-            debug('creating new kafa producer');
+            debug('creating new kafka producer');
             opts.producer = new kafka.Producer(client);
+            //debug('created producer',opts.producer);
+            opts.producer = Promise.promisifyAll(opts.producer)
         }
         if (!opts.consumer) {
-            debug('creating new kafa consumer');
+            debug('creating new kafka consumer');
             opts.consumer = new kafka.Consumer(client, [], { groupId: prefix });
+            //debug('created consumer',opts.consumer);
+            opts.consumer = Promise.promisifyAll(opts.consumer)
+
         }
     }
     /**
@@ -151,7 +165,7 @@ function adapter(uri, options) {
     };
 
     /**
-     * Uses the producer to create a new tpoic synchronously if
+     * Uses the producer to create a new topic synchronously if
      * options.createTopics is true.
      *
      * @param {string} topic to create
@@ -162,7 +176,8 @@ function adapter(uri, options) {
 
         debug('creating topic %s', chn);
         if (this.options.createTopics) {
-            this.producer.createTopics(chn, this.onError.bind(this));
+            //this.producer.createTopics(chn, this.onError.bind(this));
+            this.producer.createTopics(chn, false, function(){});
         }
     };
 
@@ -179,11 +194,14 @@ function adapter(uri, options) {
             chn = this.safeTopicName(channel);
 
         debug('subscribing to %s', chn);
-        self.consumer.addTopics([{topic: chn, partition: p}],
-            function (err) {
-                self.onError(err);
-                if (callback) { callback(err); }
-            });
+        self.consumer.addTopicsAsync([{topic: chn, partition: p}])
+        .then(function(){
+            if (callback) { callback(null); }
+        })
+        .catch(function (err){
+            self.onError(err);
+            if (callback) { callback(err); }
+        });
     };
 
     /**
@@ -199,11 +217,13 @@ function adapter(uri, options) {
             msg = JSON.stringify([self.uid, packet, opts]),
             chn = this.safeTopicName(channel);
 
-        this.producer.send([{ topic: chn, messages: [msg], attributes: 2 }],
-            function (err, data) {
-                debug('new offset in partition:', data);
-                self.onError(err);
-            });
+        this.producer.sendAsync([{ topic: chn, messages: [msg], attributes: 2 }])
+        .then(function(data){
+            debug('new offset in partition:', data);
+        })
+        .catch(function(err){
+            self.onError(err);
+        });
     };
 
     /**
