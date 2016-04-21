@@ -44,30 +44,27 @@ function adapter(uri, options) {
         uri = opts.uri || opts.host ? opts.host + ':' + opts.port : null;
         if (!uri) { throw new URIError('URI or host/port are required.'); }
     }
-    if (opts.clientId)
-        clientId = opts.clientId
-    else 
-        clientId = 'socket.io-kafka'
+    clientId = opts.clientId || 'socket.io-kafka';
 
     // create producer and consumer if they weren't provided
     if (!opts.producer || !opts.consumer) {
         debug('creating new kafka client');
         //client = new kafka.Client(uri, clientId, { retries: 4 });
         client = new kafka.Client();
-        client.on('error',function(err,data){
-            console.error('error',err,data)
-        })
+        client.on('error', function (err, data) {
+            console.error('error', err, data);
+        });
         if (!opts.producer) {
             debug('creating new kafka producer');
             opts.producer = new kafka.Producer(client);
             //debug('created producer',opts.producer);
-            opts.producer = Promise.promisifyAll(opts.producer)
+            opts.producer = Promise.promisifyAll(opts.producer);
         }
         if (!opts.consumer) {
             debug('creating new kafka consumer');
             opts.consumer = new kafka.Consumer(client, [], { groupId: prefix });
             //debug('created consumer',opts.consumer);
-            opts.consumer = Promise.promisifyAll(opts.consumer)
+            opts.consumer = Promise.promisifyAll(opts.consumer);
 
         }
     }
@@ -177,7 +174,7 @@ function adapter(uri, options) {
         debug('creating topic %s', chn);
         if (this.options.createTopics) {
             //this.producer.createTopics(chn, this.onError.bind(this));
-            this.producer.createTopics(chn, false, function(){});
+            this.producer.createTopics(chn, false, Function.prototype);
         }
     };
 
@@ -195,13 +192,13 @@ function adapter(uri, options) {
 
         debug('subscribing to %s', chn);
         self.consumer.addTopicsAsync([{topic: chn, partition: p}])
-        .then(function(){
-            if (callback) { callback(null); }
-        })
-        .catch(function (err){
-            self.onError(err);
-            if (callback) { callback(err); }
-        });
+            .then(function () {
+                if (callback) { callback(null); }
+            })
+            .catch(function (err) {
+                self.onError(err);
+                if (callback) { callback(err); }
+            });
     };
 
     /**
@@ -218,12 +215,12 @@ function adapter(uri, options) {
             chn = this.safeTopicName(channel);
 
         this.producer.sendAsync([{ topic: chn, messages: [msg], attributes: 2 }])
-        .then(function(data){
-            debug('new offset in partition:', data);
-        })
-        .catch(function(err){
-            self.onError(err);
-        });
+            .then(function (data) {
+                debug('new offset in partition:', data);
+            })
+            .catch(function (err) {
+                self.onError(err);
+            });
     };
 
     /**
