@@ -1,6 +1,6 @@
 {
   "name": "@deployable/socket.io-kafka",
-  "version": "0.1.0",
+  "version": "0.1.0-0",
   "description": "Kafka adapter for socket.io",
   "main": "index.js",
   "scripts": {
