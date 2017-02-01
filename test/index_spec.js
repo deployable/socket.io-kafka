@@ -1,16 +1,13 @@
-/*sslint node: false, unparam: false */
-/*globals expect: true, describe: true, it: true, beforeEach: true,
-  expect: true, spyOn: true */
+/* globals expect: true, sinon: true, it: true, beforeEach: true */
 
 const kafkaAdapter = require('../index.js')
 const kafka = require('kafka-node')
-const expect = require('chai').expect
-const sinon = require('sinon')
+
 
 
 describe('module:socket.io-kafka', function () {
 
-  let opts, Adapter, instance;
+  let opts, Adapter, instance
 
   beforeEach(function () {
     opts = {}
@@ -30,7 +27,7 @@ describe('module:socket.io-kafka', function () {
       expect(opts.producer).to.be.an.instanceof(kafka.Producer)
     })
 
-    it('should create a kafka.Consumer instance if consumer not provided', function () {
+    it('should create a kafka.Consumer instance if consumer not provided', function(){
       kafkaAdapter('localhost:2821', opts)
       expect(opts.consumer).to.be.an.instanceof(kafka.Consumer)
     })
@@ -41,6 +38,12 @@ describe('module:socket.io-kafka', function () {
       it('should accept only the options object', function () {
         opts.host = 'localhost'
         opts.port = 2821
+        kafkaAdapter(opts)
+        expect(opts.producer).to.be.ok
+      })
+
+      it('should accept only the options object with uri', function () {
+        opts.uri = 'localhost:2821'
         kafkaAdapter(opts)
         expect(opts.producer).to.be.ok
       })
@@ -74,7 +77,7 @@ describe('module:socket.io-kafka', function () {
       })
 
       it('should have a kafka.Producer', function () {
-        delete opts.producer;
+        delete opts.producer
         Adapter = kafkaAdapter('localhost:2821', opts)
         instance = new Adapter({name: '/'})
         expect(instance.producer).to.be.an.instanceof(kafka.Producer)
@@ -141,11 +144,11 @@ describe('module:socket.io-kafka', function () {
 
   describe('adapter.Kafka#onMessage', function () {
     
-    let msg, kafkaMsg;
+    let msg, kafkaMsg
     
     beforeEach(function () {
-      msg = ['abc', {message: 'test'}, {}];
-      kafkaMsg = { value: JSON.stringify(msg) };
+      msg = ['abc', {message: 'test'}, {}]
+      kafkaMsg = { value: JSON.stringify(msg) }
 
       Adapter = kafkaAdapter('localhost:2821', opts)
       instance = new Adapter({name: '/'})
@@ -154,9 +157,25 @@ describe('module:socket.io-kafka', function () {
     })
 
     it('should add a default nsp if none in packet', function () {
-      msg[1].nsp = '/';
+      msg[1].nsp = '/'
       instance.onMessage(kafkaMsg)
-      expect(instance.broadcast.calledWith(msg[1], msg[2], true)).to.be.ok
+      expect( instance.broadcast.firstCall.args ).to.eql([ 
+        msg[1], msg[2], true
+      ])
+    })
+
+    it('should ignore a different name space', function () {
+      msg[1].nsp = '/ASDFASKLFSDAKFLSADFDSAKAL'
+      kafkaMsg = { value: JSON.stringify(msg) }
+      instance.onMessage(kafkaMsg)
+      expect( instance.broadcast.called ).to.be.false
+    })
+
+    it('should ignore a message without packet', function () {
+      msg = ['abc']
+      kafkaMsg = { value: JSON.stringify(msg) }
+      instance.onMessage(kafkaMsg)
+      expect( instance.broadcast.called ).to.be.false
     })
 
     it('should emit an error if recieving no message', function () {
@@ -212,7 +231,7 @@ describe('module:socket.io-kafka', function () {
     })
 
     it('should not create topic if createTopics is false', function () {
-      opts.createTopics = false;
+      opts.createTopics = false
       instance.createTopic('socket.io/test')
       expect(opts.producer.createTopics.called).to.be.false
     })
@@ -244,6 +263,14 @@ describe('module:socket.io-kafka', function () {
       }
       expect( spy.firstCall.args[0][0], 'addTopicsAsync call' ).to.eql( calls )
     })
+
+    it('should add a new topic to the consumer with cb', function () {
+      let cbspy = sinon.spy()
+      instance.subscribe('socket.io/test2', cbspy).then(()=> {
+        expect( cbspy.called, 'subsscribe callback called' ).to.be.true
+      })
+    })
+
   })
 
 
@@ -297,7 +324,7 @@ describe('module:socket.io-kafka', function () {
     })
 
     it('should add nsp key to the packet', function () {
-      let packet = {message: 'test'};
+      let packet = { message: 'test' }
 
       instance.broadcast(packet, {}, true)
       expect( packet.nsp ).to.equal('/')
@@ -318,7 +345,7 @@ describe('module:socket.io-kafka', function () {
     })
 
     it('should not send a message when remote is true', function () {
-      let packet = {message: 'test'};
+      let packet = {message: 'test'}
 
       instance.broadcast(packet, {}, true)
       expect( spy.called, 'sendAsync called' ).to.be.false

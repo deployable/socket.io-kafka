@@ -30,7 +30,6 @@ const uuid = require('uuid')
 function adapter(uri, options = {}) {
   if (!options.key) options.key = 'socket.io-kafka-group'
   let client
-  let clientId
 
   // handle options only
   if (typeof uri === 'object') {
@@ -81,9 +80,9 @@ function adapter(uri, options = {}) {
 
     constructor( nsp ){
       super(nsp)
-      let create = options.createTopics;
+      let create = options.createTopics
 
-      Adapter.call(this, nsp);
+      Adapter.call(this, nsp)
 
       this.uid = uuid.v4()
       this.options = options
@@ -111,7 +110,6 @@ function adapter(uri, options = {}) {
      * @api private
      */
     onError (...errors) {
-      if (!errors) return
       debug('emitting errors', errors)
       errors.forEach(error => this.emit('error', error))
     }
@@ -124,20 +122,19 @@ function adapter(uri, options = {}) {
      * @api private
      */
     onMessage (kafkaMessage) {
-      let message, packet;
+      let message, packet
 
       try {
+        debug('kafkaMessage', kafkaMessage)
         if ( !kafkaMessage ) throw new Error('No message')
         if ( !kafkaMessage.value ) throw new Error('No message.value')
         message = JSON.parse(kafkaMessage.value)
         if ( this.uid === message[0] ) return debug('ignore same uid')
         packet = message[1]
 
-        if ( packet && packet.nsp === undefined ) packet.nsp = '/'
-
-        if ( !packet || packet.nsp !== this.nsp.name ) {
-          return debug('ignore different namespace')
-        }
+        if ( !packet ) return debug('ignore bad packet')
+        if ( packet.nsp === undefined ) packet.nsp = '/'
+        if ( packet.nsp !== this.nsp.name ) return debug('ignore different namespace')
 
         this.broadcast(packet, message[2], true)
 
@@ -166,17 +163,17 @@ function adapter(uri, options = {}) {
      * @api private
      */
     createTopic (channel) {
-        let chn = this.safeTopicName(channel)
+      let chn = this.safeTopicName(channel)
 
-        debug('creating topic %s', chn);
-        if (this.options.createTopics) {
-            //this.producer.createTopics(chn, this.onError.bind(this));
-            this.producer.createTopics(chn, false, Function.prototype);
-        }
+      debug('creating topic %s', chn)
+      if (this.options.createTopics) {
+        //this.producer.createTopics(chn, this.onError.bind(this));
+        this.producer.createTopics(chn, false, Function.prototype)
+      }
     };
 
     /**
-     * Uses the consumer to subscribe to a topic.
+     * Uses the consumer to promise to subscribe to a topic.
      *
      * @param {string} topic to subscribe to
      * @param {Kafka~subscribeCallback}
@@ -188,7 +185,7 @@ function adapter(uri, options = {}) {
 
       debug('subscribing to %s', chn)
       //debug('this.consumer', this.consumer)
-      this.consumer.addTopicsAsync([{topic: chn, partition: p}])
+      return this.consumer.addTopicsAsync([{ topic: chn, partition: p }])
         .then(()=> {
           if (callback) callback(null)
         })
@@ -199,7 +196,7 @@ function adapter(uri, options = {}) {
     }
 
     /**
-     * Uses the producer to send a message to kafka. Uses snappy compression.
+     * Uses the producer to promise to send a message to kafka. Uses snappy compression.
      *
      * @param {string} topic to publish on
      * @param {object} packet to emit
@@ -210,9 +207,9 @@ function adapter(uri, options = {}) {
       let msg = JSON.stringify([this.uid, packet, opts])
       let chn = this.safeTopicName(channel)
 
-      this.producer.sendAsync([{ topic: chn, messages: [msg], attributes: 2 }])
+      return this.producer.sendAsync([{ topic: chn, messages: [msg], attributes: 2 }])
         .then(data => {
-          debug('new offset in partition:', data);
+          debug('new offset in partition:', data)
         })
         .catch(err => this.onError(err))
     };
@@ -229,7 +226,7 @@ function adapter(uri, options = {}) {
      * @api public
      */
     broadcast (packet, opts, remote) {
-      debug('broadcasting packet', packet, opts);
+      debug('broadcasting packet', packet, opts)
       Adapter.prototype.broadcast.call(this, packet, opts)
 
       if (!remote) {
