@@ -30,9 +30,9 @@
   },
   "devDependencies": {
     "eslint": "^3.14.1",
-    "istanbul": "^0.3.11",
+    "istanbul": "^0.4.5",
     "jasmine": "^2.2.1",
-    "sinon": "^1.17.7",
-    "mocha": "^3.2.0"
+    "mocha": "^3.2.0",
+    "sinon": "^1.17.7"
   }
 }
