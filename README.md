@@ -1,7 +1,6 @@
 # socket.io-kafka
 
-[![Build Status](https://travis-ci.org/ghermeto/socket.io-kafka.svg?branch=master)](https://travis-ci.org/ghermeto/socket.io-kafka)
-[![npm version](https://badge.fury.io/js/socket.io-kafka.svg)](http://badge.fury.io/js/socket.io-kafka)
+Forked from https://github.com/ghermeto/socket.io-kafka
 
 ## How to use
 
@@ -16,7 +15,7 @@ your socket.io app horizontally using multiple ports or servers.
 
 This adapter aims to be an alternative to the
 [socket.io-redis adapter](https://www.npmjs.com/package/socket.io-redis) which
-allow multiple socket.io instances to communicate using
+allows multiple socket.io instances to communicate using
 [Kafka](http://kafka.apache.org/) instead of Redis.
 
 ### Why Kafka?
@@ -58,12 +57,10 @@ The following options are allowed:
 
 ## Running tests
 
-`npm test` will first run `jslint` and then will run `jasmine` with `istanbul` 
-code coverage. The command expects the modules to be installed as global.
+`npm test` will first run `mocha` with `istanbul` code coverage. 
 
 ## TODO
 
-- ~~add CI~~ (added [Travis CI](https://travis-ci.org))
 - read from multiple partitions
 - allow configuration to set consumer options
 - allow configuration to set compression (currently snappy is hardcoded)

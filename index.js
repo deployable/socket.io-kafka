@@ -13,15 +13,11 @@
  * @licence {@link http://opensource.org/licenses/MIT|MIT}
  */
 
-/*jslint node: false */
-
-'use strict';
-
-var kafka = require('kafka-node'),
-    Adapter = require('socket.io-adapter'),
-    debug = require('debug')('socket.io-kafka'),
-    Promise = require('bluebird'),
-    uid2 = require('uid2');
+const debug = require('debug')('socket.io-kafka:index')
+const Promise = require('bluebird')
+const kafka = require('kafka-node')
+const Adapter = require('socket.io-adapter')
+const uuid = require('uuid')
 
 /**
  * Generator for the kafka Adapater
@@ -31,78 +27,82 @@ var kafka = require('kafka-node'),
  * @return {Kafka} adapter
  * @api public
  */
-function adapter(uri, options) {
-    var opts = options || {},
-        prefix = opts.key || 'socket.io-kafka-group',
-        uid = uid2(6),
-        client,
-        clientId;
+function adapter(uri, options = {}) {
+  if (!options.key) options.key = 'socket.io-kafka-group'
+  let client
+  let clientId
 
-    // handle options only
-    if ('object' === typeof uri) {
-        opts = uri;
-        uri = opts.uri || opts.host ? opts.host + ':' + opts.port : null;
-        if (!uri) { throw new URIError('URI or host/port are required.'); }
+  // handle options only
+  if (typeof uri === 'object') {
+    options = uri
+    if ( options.uri ) uri = options.uri
+    else {
+      if ( options.host && options.port ) `${options.host}:${options.port}`
+      else throw new Error('URI or host/port are required.')
     }
-    clientId = opts.clientId || 'socket.io-kafka';
+  }
+  clientId = options.clientId || 'socket.io-kafka'
 
-    // create producer and consumer if they weren't provided
-    if (!opts.producer || !opts.consumer) {
-        debug('creating new kafka client');
-        //client = new kafka.Client(uri, clientId, { retries: 4 });
-        client = new kafka.Client();
-        client.on('error', function (err, data) {
-            console.error('error', err, data);
-        });
-        if (!opts.producer) {
-            debug('creating new kafka producer');
-            opts.producer = new kafka.Producer(client);
-            //debug('created producer',opts.producer);
-            opts.producer = Promise.promisifyAll(opts.producer);
-        }
-        if (!opts.consumer) {
-            debug('creating new kafka consumer');
-            opts.consumer = new kafka.Consumer(client, [], { groupId: prefix });
-            //debug('created consumer',opts.consumer);
-            opts.consumer = Promise.promisifyAll(opts.consumer);
+  // create producer and consumer if they weren't provided
+  if (!options.producer || !options.consumer) {
+      debug('creating new kafka client')
+      
+      //client = new kafka.Client(uri, clientId, { retries: 4 })
+      client = new kafka.Client()
+      
+      client.on('error', function (err, data) {
+        console.error('error', err, data)
+      })
 
-        }
+      if (!options.producer) {
+        debug('creating new kafka producer')
+        options.producer = new kafka.Producer(client)
+        //debug('created producer',options.producer)
+        options.producer = Promise.promisifyAll(options.producer)
+      }
+
+      if (!options.consumer) {
+        debug('creating new kafka consumer')
+        options.consumer = new kafka.Consumer(client, [], { groupId: options.key })
+        //debug('created consumer',options.consumer)
+        options.consumer = Promise.promisifyAll(options.consumer)
+      }
+  }
+
+  /**
+   * Kafka Adapter constructor.
+   *
+   * @constructor
+   * @param {object} channel namespace
+   * @api public
+   */
+
+  class Kafka extends Adapter {
+
+    constructor( nsp ){
+      super(nsp)
+      let create = options.createTopics;
+
+      Adapter.call(this, nsp);
+
+      this.uid = uuid.v4()
+      this.options = options
+      this.prefix = options.key
+      this.consumer = options.consumer
+      this.producer = options.producer
+      this.mainTopic = this.prefix + nsp.name
+      options.createTopics = (create === undefined) ? true : create
+
+      options.producer.on('ready', () => {
+        debug('producer ready')
+        this.createTopic(this.mainTopic)
+        this.subscribe(this.mainTopic)
+
+        // handle incoming messages to the channel
+        this.consumer.on('message', this.onMessage.bind(this))
+        this.consumer.on('error', this.onError.bind(this))
+      })
     }
-    /**
-     * Kafka Adapter constructor.
-     *
-     * @constructor
-     * @param {object} channel namespace
-     * @api public
-     */
-    function Kafka(nsp) {
-        var self = this,
-            create = opts.createTopics;
-
-        Adapter.call(this, nsp);
-
-        this.uid = uid;
-        this.options = opts;
-        this.prefix = prefix;
-        this.consumer = opts.consumer;
-        this.producer = opts.producer;
-        this.mainTopic = prefix + nsp.name;
-        opts.createTopics = (create === undefined) ? true : create;
-
-        opts.producer.on('ready', function () {
-            debug('producer ready');
-            self.createTopic(self.mainTopic);
-            self.subscribe(self.mainTopic);
-
-            // handle incoming messages to the channel
-            self.consumer.on('message', self.onMessage.bind(self));
-            self.consumer.on('error', self.onError.bind(self));
-        });
-    }
-
-    // inherit from Adapter
-    Kafka.prototype = Object.create(Adapter.prototype);
-    Kafka.prototype.constructor = Kafka;
 
     /**
      * Emits the error.
@@ -110,15 +110,11 @@ function adapter(uri, options) {
      * @param {object|string} error
      * @api private
      */
-    Kafka.prototype.onError = function (err) {
-        var self = this,
-            arr = [].concat.apply([], arguments);
-
-        if (err) {
-            debug('emitting error', err);
-            arr.forEach(function (error) { self.emit('error', error); });
-        }
-    };
+    onError (...errors) {
+      if (!errors) return
+      debug('emitting errors', errors)
+      errors.forEach(error => this.emit('error', error))
+    }
 
     /**
      * Process a message received by a consumer. Ignores messages which come
@@ -127,28 +123,29 @@ function adapter(uri, options) {
      * @param {object} kafka message
      * @api private
      */
-    Kafka.prototype.onMessage = function (kafkaMessage) {
-        var message, packet;
+    onMessage (kafkaMessage) {
+      let message, packet;
 
-        try {
-            message = JSON.parse(kafkaMessage.value);
-            if (uid === message[0]) { return debug('ignore same uid'); }
-            packet = message[1];
+      try {
+        if ( !kafkaMessage ) throw new Error('No message')
+        if ( !kafkaMessage.value ) throw new Error('No message.value')
+        message = JSON.parse(kafkaMessage.value)
+        if ( this.uid === message[0] ) return debug('ignore same uid')
+        packet = message[1]
 
-            if (packet && packet.nsp === undefined) {
-                packet.nsp = '/';
-            }
+        if ( packet && packet.nsp === undefined ) packet.nsp = '/'
 
-            if (!packet || packet.nsp !== this.nsp.name) {
-                return debug('ignore different namespace');
-            }
-
-            this.broadcast(packet, message[2], true);
-        } catch (err) {
-            // failed to parse JSON?
-            this.onError(err);
+        if ( !packet || packet.nsp !== this.nsp.name ) {
+          return debug('ignore different namespace')
         }
-    };
+
+        this.broadcast(packet, message[2], true)
+
+      } catch (error) {
+        // failed to parse JSON?
+        this.onError(error)
+      }
+    }
 
     /**
      * Converts a socket.io channel into a safe kafka topic name.
@@ -157,9 +154,9 @@ function adapter(uri, options) {
      * @return {string} topic name
      * @api private
      */
-    Kafka.prototype.safeTopicName = function (channel) {
-        return channel.replace('/', '_');
-    };
+    safeTopicName (channel) {
+      return channel.replace('/', '_')
+    }
 
     /**
      * Uses the producer to create a new topic synchronously if
@@ -168,8 +165,8 @@ function adapter(uri, options) {
      * @param {string} topic to create
      * @api private
      */
-    Kafka.prototype.createTopic = function (channel) {
-        var chn = this.safeTopicName(channel);
+    createTopic (channel) {
+        let chn = this.safeTopicName(channel)
 
         debug('creating topic %s', chn);
         if (this.options.createTopics) {
@@ -185,21 +182,21 @@ function adapter(uri, options) {
      * @param {Kafka~subscribeCallback}
      * @api private
      */
-    Kafka.prototype.subscribe = function (channel, callback) {
-        var self = this,
-            p = this.options.partition || 0,
-            chn = this.safeTopicName(channel);
+    subscribe (channel, callback) {
+      let p = this.options.partition || 0
+      let chn = this.safeTopicName(channel)
 
-        debug('subscribing to %s', chn);
-        self.consumer.addTopicsAsync([{topic: chn, partition: p}])
-            .then(function () {
-                if (callback) { callback(null); }
-            })
-            .catch(function (err) {
-                self.onError(err);
-                if (callback) { callback(err); }
-            });
-    };
+      debug('subscribing to %s', chn)
+      //debug('this.consumer', this.consumer)
+      this.consumer.addTopicsAsync([{topic: chn, partition: p}])
+        .then(()=> {
+          if (callback) callback(null)
+        })
+        .catch(err => {
+          this.onError(err)
+          if (callback) callback(err)
+        })
+    }
 
     /**
      * Uses the producer to send a message to kafka. Uses snappy compression.
@@ -209,18 +206,15 @@ function adapter(uri, options) {
      * @param {object} options
      * @api private
      */
-    Kafka.prototype.publish = function (channel, packet, opts) {
-        var self = this,
-            msg = JSON.stringify([self.uid, packet, opts]),
-            chn = this.safeTopicName(channel);
+    publish (channel, packet, opts) {
+      let msg = JSON.stringify([this.uid, packet, opts])
+      let chn = this.safeTopicName(channel)
 
-        this.producer.sendAsync([{ topic: chn, messages: [msg], attributes: 2 }])
-            .then(function (data) {
-                debug('new offset in partition:', data);
-            })
-            .catch(function (err) {
-                self.onError(err);
-            });
+      this.producer.sendAsync([{ topic: chn, messages: [msg], attributes: 2 }])
+        .then(data => {
+          debug('new offset in partition:', data);
+        })
+        .catch(err => this.onError(err))
     };
 
     /**
@@ -234,20 +228,21 @@ function adapter(uri, options) {
      * @param {Boolean} whether the packet came from another node
      * @api public
      */
-    Kafka.prototype.broadcast = function (packet, opts, remote) {
-        var self = this,
-            channel;
+    broadcast (packet, opts, remote) {
+      debug('broadcasting packet', packet, opts);
+      Adapter.prototype.broadcast.call(this, packet, opts)
 
-        debug('broadcasting packet', packet, opts);
-        Adapter.prototype.broadcast.call(this, packet, opts);
+      if (!remote) {
+        let channel = this.safeTopicName(this.mainTopic)
+        this.publish(channel, packet, opts)
+      }
+    }
 
-        if (!remote) {
-            channel = self.safeTopicName(self.mainTopic);
-            self.publish(channel, packet, opts);
-        }
-    };
+  }
 
-    return Kafka;
+
+  return Kafka
+
 }
 
-module.exports = adapter;
+module.exports = adapter
