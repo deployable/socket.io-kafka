@@ -1,5 +1,5 @@
 {
-  "name": "socket.io-kafka",
+  "name": "@dply/socket.io-kafka",
   "version": "0.1.0",
   "description": "Kafka adapter for socket.io",
   "main": "index.js",
