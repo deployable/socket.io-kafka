@@ -4,7 +4,7 @@
   "description": "Kafka adapter for socket.io",
   "main": "index.js",
   "scripts": {
-    "test": "set -uex; istanbul cover _mocha; istanbul check-coverage; eslint lib",
+    "test": "set -uex; istanbul cover _mocha; istanbul check-coverage; eslint index.js",
     "release:test": "set -uex; yarn test; git push; npm version prerelease; npm publish --tag testing; git push --tags",
     "release:patch": "set -uex; rm -rf node_modules; yarn install; yarn test; git push; npm version patch; npm publish; git push --tags"
   },
