@@ -170,7 +170,7 @@ function adapter(uri, options = {}) {
         //this.producer.createTopics(chn, this.onError.bind(this));
         this.producer.createTopics(chn, false, Function.prototype)
       }
-    };
+    }
 
     /**
      * Uses the consumer to promise to subscribe to a topic.
