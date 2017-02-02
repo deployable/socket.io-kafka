@@ -14,10 +14,26 @@
  */
 
 const debug = require('debug')('socket.io-kafka:index')
+const debugmsg = require('debug')('socket.io-kafka:index:message')
 const Promise = require('bluebird')
 const kafka = require('kafka-node')
 const Adapter = require('socket.io-adapter')
 const uuid = require('uuid')
+
+// Track clients so they can be cleaned up on exit
+const kafka_adapters = {}
+
+process.on('SIGINT',()=> cleanUpClients())
+process.on('SIGTERM',()=> cleanUpClients())
+
+
+// Loop though all stored client uids and close them
+function cleanUpClients(){
+  console.log('socketio-kafka cleaning up kafka clients')
+  return Promise.map( Object.keys(kafka_adapters), uid => kafka_adapters[uid].closeClient() )
+}
+
+
 
 /**
  * Generator for the kafka Adapater
@@ -28,8 +44,7 @@ const uuid = require('uuid')
  * @api public
  */
 function adapter(uri, options = {}) {
-  if (!options.key) options.key = 'socket.io-kafka-group'
-  let client
+  if (!options.key) options.key = 'socketio_kafka_grp'
 
   // handle options only
   if (typeof uri === 'object') {
@@ -42,31 +57,35 @@ function adapter(uri, options = {}) {
   }
   clientId = options.clientId || 'socket.io-kafka'
 
-  // create producer and consumer if they weren't provided
+  // Create producer and consumer if they weren't provided
   if (!options.producer || !options.consumer) {
       debug('creating new kafka client')
       
       //client = new kafka.Client(uri, clientId, { retries: 4 })
-      client = new kafka.Client()
+      if (!options.client) {
+        options.client = new kafka.Client()
+        debug('adapter created new kafka Client', options.client.zk.client.getSessionId())
+      }
       
-      client.on('error', function (err, data) {
+      options.client.on('error', function (err, data) {
         console.error('error', err, data)
       })
 
       if (!options.producer) {
         debug('creating new kafka producer')
-        options.producer = new kafka.Producer(client)
+        options.producer = new kafka.Producer(options.client)
         //debug('created producer',options.producer)
         options.producer = Promise.promisifyAll(options.producer)
       }
 
       if (!options.consumer) {
         debug('creating new kafka consumer')
-        options.consumer = new kafka.Consumer(client, [], { groupId: options.key })
+        options.consumer = new kafka.Consumer(options.client, [], { groupId: options.key })
         //debug('created consumer',options.consumer)
         options.consumer = Promise.promisifyAll(options.consumer)
       }
   }
+
 
   /**
    * Kafka Adapter constructor.
@@ -82,24 +101,53 @@ function adapter(uri, options = {}) {
       super(nsp)
       let create = options.createTopics
 
-      Adapter.call(this, nsp)
-
+      // Random Adapter uid
       this.uid = uuid.v4()
+      this.debug = require('debug')(`socket.io-kafka:index[${this.uid}]`)
       this.options = options
+      // Msg prefix
       this.prefix = options.key
+      
+      // Kafka-node consumer and producer instances
       this.consumer = options.consumer
       this.producer = options.producer
+
+      // Add the socketio namespace to the kafka topic
       this.mainTopic = this.prefix + nsp.name
+
+      // Allow this adapter to close the attached kafka client
+      this.dont_close = options.dont_close
+
       options.createTopics = (create === undefined) ? true : create
 
       options.producer.on('ready', () => {
-        debug('producer ready')
+        this.debug('producer ready')
         this.createTopic(this.mainTopic)
         this.subscribe(this.mainTopic)
 
         // handle incoming messages to the channel
+        if (!this.consumer.on) this.debug('this.consumer', this.consumer)
         this.consumer.on('message', this.onMessage.bind(this))
         this.consumer.on('error', this.onError.bind(this))
+      })
+
+      this.storeAdapter()
+    }
+
+    storeAdapter(){
+      kafka_adapters[this.uid] = this
+    }
+
+    // Accepts a client uid, and closes it
+    closeClient(){
+      return new Promise((resolve, reject) => {
+        if ( this.dont_close || !this.options.client || !this.options.client.close ) resolve(false)
+        this.options.client.close((err) => {
+          if (err) return reject(err)
+          console.log('closed kafka client for adapter %s', this.uid, err)
+          if (kafka_adapters[this.uid]) delete kafka_adapters[this.uid]
+          resolve(true)
+        })
       })
     }
 
@@ -110,7 +158,7 @@ function adapter(uri, options = {}) {
      * @api private
      */
     onError (...errors) {
-      debug('emitting errors', errors)
+      this.debug('emitting errors', errors)
       errors.forEach(error => this.emit('error', error))
     }
 
@@ -125,16 +173,16 @@ function adapter(uri, options = {}) {
       let message, packet
 
       try {
-        debug('kafkaMessage', kafkaMessage)
+        debugmsg('kafkaMessage', kafkaMessage)
         if ( !kafkaMessage ) throw new Error('No message')
         if ( !kafkaMessage.value ) throw new Error('No message.value')
         message = JSON.parse(kafkaMessage.value)
-        if ( this.uid === message[0] ) return debug('ignore same uid')
+        if ( this.uid === message[0] ) return this.debug('ignore same uid')
         packet = message[1]
 
-        if ( !packet ) return debug('ignore bad packet')
+        if ( !packet ) return this.debug('ignore bad packet')
         if ( packet.nsp === undefined ) packet.nsp = '/'
-        if ( packet.nsp !== this.nsp.name ) return debug('ignore different namespace')
+        if ( packet.nsp !== this.nsp.name ) return this.debug('ignore different namespace')
 
         this.broadcast(packet, message[2], true)
 
@@ -165,7 +213,7 @@ function adapter(uri, options = {}) {
     createTopic (channel) {
       let chn = this.safeTopicName(channel)
 
-      debug('creating topic %s', chn)
+      this.debug('creating topic %s', chn)
       if (this.options.createTopics) {
         //this.producer.createTopics(chn, this.onError.bind(this));
         this.producer.createTopics(chn, false, Function.prototype)
@@ -183,7 +231,7 @@ function adapter(uri, options = {}) {
       let p = this.options.partition || 0
       let chn = this.safeTopicName(channel)
 
-      debug('subscribing to %s', chn)
+      this.debug('subscribing to %s', chn)
       //debug('this.consumer', this.consumer)
       return this.consumer.addTopicsAsync([{ topic: chn, partition: p }])
         .then(()=> {
@@ -207,9 +255,11 @@ function adapter(uri, options = {}) {
       let msg = JSON.stringify([this.uid, packet, opts])
       let chn = this.safeTopicName(channel)
 
+      this.debug('publish to %s', channel)
+
       return this.producer.sendAsync([{ topic: chn, messages: [msg], attributes: 2 }])
         .then(data => {
-          debug('new offset in partition:', data)
+          this.debug('new offset in partition:', data)
         })
         .catch(err => this.onError(err))
     };
@@ -226,7 +276,7 @@ function adapter(uri, options = {}) {
      * @api public
      */
     broadcast (packet, opts, remote) {
-      debug('broadcasting packet', packet, opts)
+      this.debug('broadcasting packet', packet, opts)
       Adapter.prototype.broadcast.call(this, packet, opts)
 
       if (!remote) {
@@ -238,8 +288,11 @@ function adapter(uri, options = {}) {
   }
 
 
+  Kafka.options = options
   return Kafka
 
 }
 
 module.exports = adapter
+module.exports.cleanUpClients = cleanUpClients
+module.exports.kafka_adapters = kafka_adapters

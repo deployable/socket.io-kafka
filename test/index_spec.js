@@ -7,12 +7,7 @@ const kafka = require('kafka-node')
 
 describe('module:socket.io-kafka', function () {
 
-  let opts, Adapter, instance
-
-  beforeEach(function () {
-    opts = {}
-  })
-
+  let Adapter, instance
 
   describe('adapter', function () {
     
@@ -23,11 +18,13 @@ describe('module:socket.io-kafka', function () {
     })
 
     it('should create a kafka.Producer instance if producer not provided', function(){
+      let opts = {}
       kafkaAdapter('localhost:2821', opts)
       expect(opts.producer).to.be.an.instanceof(kafka.Producer)
     })
 
     it('should create a kafka.Consumer instance if consumer not provided', function(){
+      let opts = {}
       kafkaAdapter('localhost:2821', opts)
       expect(opts.consumer).to.be.an.instanceof(kafka.Consumer)
     })
@@ -36,19 +33,21 @@ describe('module:socket.io-kafka', function () {
     describe('only options object', function () {
 
       it('should accept only the options object', function () {
-        opts.host = 'localhost'
-        opts.port = 2821
+        let opts = {
+          host: 'localhost',
+          port: 2821
+        }
         kafkaAdapter(opts)
         expect(opts.producer).to.be.ok
       })
 
       it('should accept only the options object with uri', function () {
-        opts.uri = 'localhost:2821'
+        let opts = { uri: 'localhost:2821' }
         kafkaAdapter(opts)
         expect(opts.producer).to.be.ok
       })
 
-      it('should throw if uri or host/port are defined', function () {
+      it('should throw if uri and host/port are note defined', function () {
         expect( ()=> kafkaAdapter(opts) ).to.throw()
       })
 
@@ -61,8 +60,10 @@ describe('module:socket.io-kafka', function () {
 
     describe('without producer', function () {
 
+      let opts
+
       beforeEach(function () {
-        opts.producer = { on: sinon.spy() }
+        opts = { producer: { on: sinon.spy() } }
         Adapter = kafkaAdapter('localhost:2821', opts)
         instance = new Adapter({name: '/'})
       })
@@ -77,14 +78,14 @@ describe('module:socket.io-kafka', function () {
       })
 
       it('should have a kafka.Producer', function () {
-        delete opts.producer
+        opts = {}
         Adapter = kafkaAdapter('localhost:2821', opts)
         instance = new Adapter({name: '/'})
         expect(instance.producer).to.be.an.instanceof(kafka.Producer)
       })
 
       it('should default mainTopic to socket.io/', function () {
-        expect(instance.mainTopic).to.equal('socket.io-kafka-group/')
+        expect(instance.mainTopic).to.equal('socketio_kafka_grp/')
       })
 
       it('should default createTopics to true', function () {
@@ -95,15 +96,21 @@ describe('module:socket.io-kafka', function () {
         expect(opts.producer.on.calledWith('ready')).to.be.ok
       })
 
+      it('should close the client', function () {
+        return expect( instance.closeClient() ).to.become(true)
+      })
+
     })
 
 
     describe('producer ready', function () {
 
       beforeEach(function () {
-        opts.consumer = { 
-          on: sinon.spy(), 
-          addTopicsAsync: () => new Promise(resolve => resolve(true))
+        let opts = { 
+          consumer: { 
+            on: sinon.spy(), 
+            addTopicsAsync: () => new Promise(resolve => resolve(true))
+          }
         }
         Adapter = kafkaAdapter('localhost:2821', opts)
         instance = new Adapter({name: '/'})
@@ -126,7 +133,7 @@ describe('module:socket.io-kafka', function () {
   describe('adapter.Kafka#onError', function () {
 
     beforeEach(function () {
-      //opts.producer = { on: sinon.spy() }
+      let opts = { producer: { on: sinon.spy() } }
       Adapter = kafkaAdapter('localhost:2821', opts)
       instance = new Adapter({name: '/'})
       sinon.spy(instance, 'emit')
@@ -150,7 +157,7 @@ describe('module:socket.io-kafka', function () {
       msg = ['abc', {message: 'test'}, {}]
       kafkaMsg = { value: JSON.stringify(msg) }
 
-      Adapter = kafkaAdapter('localhost:2821', opts)
+      Adapter = kafkaAdapter('localhost:2821', {})
       instance = new Adapter({name: '/'})
       sinon.spy(instance, 'broadcast')
       sinon.spy(instance, 'onError')
@@ -201,6 +208,7 @@ describe('module:socket.io-kafka', function () {
   describe('adapter.Kafka#safeTopicName', function () {
 
     beforeEach(function () {
+      let opts = {}
       Adapter = kafkaAdapter('localhost:2821', opts)
       instance = new Adapter({name: '/'})
     })
@@ -215,12 +223,15 @@ describe('module:socket.io-kafka', function () {
 
   describe('adapter.Kafka#createTopic', function () {
 
-    beforeEach(function () {
-      opts.producer = {
-        on: sinon.spy(),
-        createTopics: sinon.spy()
-      }
+    let opts
 
+    beforeEach(function () {
+      opts = {
+        producer: {
+          on: sinon.spy(),
+          createTopics: sinon.spy()
+        }
+      }
       Adapter = kafkaAdapter('localhost:2821', opts)
       instance = new Adapter({name: '/'})
     })
@@ -240,15 +251,19 @@ describe('module:socket.io-kafka', function () {
 
   describe('adapter.Kafka#subscribe', function () {
 
-    let spy
+    let spy, opts
 
     beforeEach(function () {
       spy = sinon.spy()
-      opts.consumer = {
-        addTopicsAsync: (...args) => new Promise(resolve => {
-          spy(...args)
-          resolve(true)
-        })
+      opts = {
+        consumer: {
+          addTopicsAsync: (...args) => new Promise(resolve => {
+            spy(...args)
+            resolve(true)
+          }),
+          on: ()=>{} // Due to the subsribe test, it later gets broadcast. Should
+                     //  be cleaning up but `.close()`` is buggy in node-zookeeper-client
+        }
       }
 
       Adapter = kafkaAdapter('localhost:2821', opts)
@@ -276,16 +291,18 @@ describe('module:socket.io-kafka', function () {
 
   describe('adapter.Kafka#publish', function () {
 
-    let spy
+    let spy, opts
 
     beforeEach(function () {
       spy = sinon.spy()
-      opts.producer = {
-        on: sinon.spy(),
-        sendAsync: (...args) => new Promise(resolve => {
-          spy(...args)
-          resolve(true)
-        })
+      opts = {
+        producer: {
+          on: sinon.spy(),
+          sendAsync: (...args) => new Promise(resolve => {
+            spy(...args)
+            resolve(true)
+          })
+        }
       }
       Adapter = kafkaAdapter('localhost:2821', opts)
       instance = new Adapter({name: '/'})
@@ -312,12 +329,14 @@ describe('module:socket.io-kafka', function () {
 
     beforeEach(function () {
       spy = sinon.spy()
-      opts.producer = {
-        on: sinon.spy(),
-        sendAsync: (...args) => new Promise(resolve => {
-          spy(...args)
-          resolve(true)
-        })
+      let opts = {
+        producer: {
+          on: sinon.spy(),
+          sendAsync: (...args) => new Promise(resolve => {
+            spy(...args)
+            resolve(true)
+          })
+        }
       }
       Adapter = kafkaAdapter('localhost:2821', opts)
       instance = new Adapter({name: '/'})
@@ -335,7 +354,7 @@ describe('module:socket.io-kafka', function () {
       let msg = JSON.stringify([instance.uid, packet, {}])
 
       let expected_args = [{
-        topic: 'socket.io-kafka-group_',
+        topic: 'socketio_kafka_grp_',
         messages: [msg],
         attributes: 2
       }]
