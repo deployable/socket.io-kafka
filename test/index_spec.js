@@ -48,7 +48,11 @@ describe('module:socket.io-kafka', function () {
       })
 
       it('should throw if uri and host/port are note defined', function () {
-        expect( ()=> kafkaAdapter(opts) ).to.throw()
+        expect( ()=> kafkaAdapter({}) ).to.throw(/URI or host\/port are required/)
+      })
+
+      it('should throw if uri and host/port are note defined', function () {
+        expect( ()=> kafkaAdapter() ).to.throw(/URI or options with URI require/)
       })
 
     })

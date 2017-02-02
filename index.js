@@ -47,6 +47,8 @@ function adapter(uri, options = {}) {
   if (!options.key) options.key = 'socketio_kafka_grp'
 
   // handle options only
+  if (!uri ) { throw new Error('URI or options with URI require') }
+
   if (typeof uri === 'object') {
     options = uri
     if ( options.uri ) uri = options.uri
@@ -67,6 +69,7 @@ function adapter(uri, options = {}) {
         debug('adapter created new kafka Client', options.client.zk.client.getSessionId())
       }
       
+      /* istanbul ignore next */
       options.client.on('error', function (err, data) {
         console.error('error', err, data)
       })
@@ -126,7 +129,8 @@ function adapter(uri, options = {}) {
         this.subscribe(this.mainTopic)
 
         // handle incoming messages to the channel
-        if (!this.consumer.on) this.debug('this.consumer', this.consumer)
+        /* istanbul ignore if */
+        if (!this.consumer.on) throw new Error('Kafka consumer must have an `on` method')
         this.consumer.on('message', this.onMessage.bind(this))
         this.consumer.on('error', this.onError.bind(this))
       })
